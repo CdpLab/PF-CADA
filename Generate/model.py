@@ -6,25 +6,25 @@ import numpy as np
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-# class Generator(nn.Module):
-#     def __init__(self, input_dim):
-#         super(Generator, self).__init__()
-#         self.model = nn.Sequential(
-#             nn.Linear(input_dim, 256),
-#             nn.LeakyReLU(0.2),
-#             nn.BatchNorm1d(256, momentum=0.8),
-#             nn.Linear(256, 512),
-#             nn.LeakyReLU(0.2),
-#             nn.BatchNorm1d(512, momentum=0.8),
-#             nn.Linear(512, 1024),
-#             nn.LeakyReLU(0.2),
-#             nn.BatchNorm1d(1024, momentum=0.8),
-#             nn.Linear(1024, input_dim),
-#             nn.Tanh()
-#         )
-#
-#     def forward(self, x):
-#         return self.model(x)
+class Generator(nn.Module):
+    def __init__(self, input_dim):
+        super(Generator, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(input_dim, 256),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm1d(256, momentum=0.8),
+            nn.Linear(256, 512),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm1d(512, momentum=0.8),
+            nn.Linear(512, 1024),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm1d(1024, momentum=0.8),
+            nn.Linear(1024, input_dim),
+            nn.Tanh()
+        )
+
+    def forward(self, x):
+        return self.model(x)
 class Generator(nn.Module):
     def __init__(self, num_chan, img_rows, img_cols, input_dim):
         super(Generator, self).__init__()
@@ -107,10 +107,94 @@ class Discriminator(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-# # 训练 GAN
-# # 假定 generator 和 discriminator 已经定义并初始化
-# def train_gan(generator, discriminator, epochs, batch_size, data_path):
-#     X_train = load_data(data_path)  # 假定这个函数会返回正确格式的数据张量
+# 加载和处理数据
+# def load_data(file_path):
+#     data = scipy.io.loadmat(file_path)['data']
+#     data = data.reshape(data.shape[0], -1)
+#     data_tensor = torch.tensor(data, dtype=torch.float)
+#     return data_tensor
+#
+# def generate_data(generator, num_samples, num_chan=4, img_rows=8, img_cols=9):
+#     generator.eval()  # 确保模型处于评估模式
+#     # 为卷积生成器创建正确形状的噪声
+#     noise = torch.randn(num_samples, num_chan, img_rows, img_cols, device=device)
+#     with torch.no_grad():
+#         generated_data = generator(noise)
+#     # 不再需要调整形状，因为生成的数据应该已经是正确的形状
+#     generated_data = generated_data.cpu().numpy()  # 只需将数据移至CPU并转换为NumPy数组
+#     return generated_data
+#
+#
+# def assign_labels(num_samples, high_arousal_prob=0.5, high_valence_prob=0.5):
+#     arousal_labels = np.random.choice([0, 1], size=(num_samples,), p=[1-high_arousal_prob, high_arousal_prob])
+#     valence_labels = np.random.choice([0, 1], size=(num_samples,), p=[1-high_valence_prob, high_valence_prob])
+#     return arousal_labels, valence_labels
+#
+# def pretrain_gan(generator, discriminator, epochs, batch_size, pretrain_data_paths, device):
+#     """
+#     预训练GAN模型
+#     """
+#     for path_index, path in enumerate(pretrain_data_paths, start=1):
+#         X_train = load_data(path)
+#         dataset = TensorDataset(X_train)
+#         loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+#
+#         # 为生成器和判别器分别定义优化器
+#         optimizer_G = torch.optim.SGD(generator.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
+#         optimizer_D = torch.optim.SGD(discriminator.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
+#         scheduler_G = torch.optim.lr_scheduler.StepLR(optimizer_G, step_size=30, gamma=0.1)
+#         scheduler_D = torch.optim.lr_scheduler.StepLR(optimizer_D, step_size=30, gamma=0.1)
+#         criterion = nn.BCELoss()  # 二元交叉熵损失用于 GAN
+#
+#         for epoch in range(epochs):
+#             for _, (real_data,) in enumerate(loader):
+#                 real_data = real_data.to(device)
+#                 batch_size = real_data.size(0)
+#
+#                 # 真实数据标签为1, 假数据标签为0
+#                 real_labels = torch.ones(batch_size, 1, device=device)
+#                 fake_labels = torch.zeros(batch_size, 1, device=device)
+#
+#                 # 训练判别器
+#                 discriminator.zero_grad()
+#                 outputs_real = discriminator(real_data)
+#                 d_loss_real = criterion(outputs_real, real_labels)
+#                 d_loss_real.backward()
+#
+#                 # 训练判别器时生成噪声数据
+#                 noise = torch.randn(batch_size, num_chan, img_rows, img_cols, device=device)
+#                 fake_data = generator(noise)
+#                 outputs_fake = discriminator(fake_data.detach())
+#                 d_loss_fake = criterion(outputs_fake, fake_labels)
+#                 d_loss_fake.backward()
+#                 optimizer_D.step()
+#
+#                 # 训练生成器
+#                 generator.zero_grad()
+#                 outputs = discriminator(fake_data)
+#                 g_loss = criterion(outputs, real_labels)
+#                 g_loss.backward()
+#                 optimizer_G.step()
+#
+#                 # 更新学习率
+#                 scheduler_G.step()
+#                 scheduler_D.step()
+#
+#                 if epoch % 100 == 0:
+#                     print(
+#                         f"Epoch [{epoch + 1}/{epochs}] D_loss: {d_loss_real.item() + d_loss_fake.item():.4f} G_loss: {g_loss.item():.4f}")
+#
+#         # 每训练完一个数据集后的提示信息
+#         print(f"Completed pretraining with dataset {path_index}/{len(pretrain_data_paths)}: {path}")
+#
+# def finetune_gan(generator, discriminator, epochs, batch_size, finetune_data_path, device):
+#     """
+#     微调GAN模型，使用微调数据路径
+#     """
+#     generator.train()
+#     discriminator.train()
+#     # 微调GAN的逻辑，与预训练类似，但是针对每个实验者的微调数据路径进行
+#     X_train = load_data(finetune_data_path)
 #     dataset = TensorDataset(X_train)
 #     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 #
@@ -136,7 +220,8 @@ class Discriminator(nn.Module):
 #             d_loss_real = criterion(outputs_real, real_labels)
 #             d_loss_real.backward()
 #
-#             noise = torch.randn(batch_size, input_dim, device=device)
+#             # 训练判别器时生成噪声数据
+#             noise = torch.randn(batch_size, num_chan, img_rows, img_cols, device=device)
 #             fake_data = generator(noise)
 #             outputs_fake = discriminator(fake_data.detach())
 #             d_loss_fake = criterion(outputs_fake, fake_labels)
@@ -154,24 +239,60 @@ class Discriminator(nn.Module):
 #             scheduler_G.step()
 #             scheduler_D.step()
 #
-#             if epoch % 100 == 0:
-#                 print(f"Epoch [{epoch+1}/{epochs}] D_loss: {d_loss_real.item()+d_loss_fake.item():.4f} G_loss: {g_loss.item():.4f}")
-
-
-# 训练所有文件
-# def train_all_files(epochs, batch_size, file_index, generator, discriminator):
-#         file_path = f'D:/DEAP/with_base_0.5/DE_s{file_index:02d}.mat'
-#         print(f"Training on file: {file_path}")
-#         train_gan(epochs=epochs, batch_size=batch_size, data_path=file_path, generator=generator, discriminator=discriminator)
-#         print(f"Completed training on file: {file_path}")
-
-# for i in range(len(name_index)):
-#     file_path = os.path.join(dataset_dir, 'DE_s'+name_index[i])
+#             if epoch % 10 == 0:
+#                 print(
+#                     f"Epoch [{epoch + 1}/{epochs}] D_loss: {d_loss_real.item() + d_loss_fake.item():.4f} G_loss: {g_loss.item():.4f}")
 #
+# def split_data_for_pretraining_and_finetuning(data_dir, name_index, test_size=0.3):
+#     pretrain_data_paths = []
+#     finetune_data_paths = []
+#
+#     for name in name_index:
+#         file_path = os.path.join(data_dir, f'DE_s{name}.mat')
+#         data = scipy.io.loadmat(file_path)['data']
+#
+#         # 假设数据第一维是样本维
+#         num_samples = data.shape[0]
+#         indices = np.arange(num_samples)
+#
+#         # 分割样本索引
+#         pretrain_indices, finetune_indices = train_test_split(indices, test_size=test_size, random_state=42)
+#
+#         # 保存分割后的数据
+#         pretrain_data_path = os.path.join(data_dir, f'pretrain_DE_s{name}.mat')
+#         finetune_data_path = os.path.join(data_dir, f'finetune_DE_s{name}.mat')
+#
+#         scipy.io.savemat(pretrain_data_path, {'data': data[pretrain_indices]})
+#         scipy.io.savemat(finetune_data_path, {'data': data[finetune_indices]})
+#
+#         pretrain_data_paths.append(pretrain_data_path)
+#         finetune_data_paths.append(finetune_data_path)
+#         print(
+#             f"Splitting data for subject {name}: Pretrain data saved to {pretrain_data_path}, Finetune data saved to {finetune_data_path}")
+#
+#     return pretrain_data_paths, finetune_data_paths
+
+# # 分割数据用于预训练和微调
+# pretrain_data_paths, finetune_data_paths = split_data_for_pretraining_and_finetuning(dataset_dir, name_index)
+#
+# # 实例化GAN模型并移至适当的设备
+# generator = Generator(num_chan=4, img_rows=8, img_cols=9, input_dim=input_dim).to(device)
+# discriminator = Discriminator(input_dim).to(device)
+#
+# # 使用预训练数据集路径预训练GAN
+# pretrain_gan(generator, discriminator, epochs=10, batch_size=256, pretrain_data_paths=pretrain_data_paths, device=device)
+
+# 微调每个实验者的GAN模型
+# for i, finetune_data_path in enumerate(finetune_data_paths):
+#     print(f"Finetuning GAN with data from {finetune_data_path}")
+#
+#     # 微调GAN
+#     finetune_gan(generator, discriminator, epochs=1, batch_size=256, finetune_data_path=finetune_data_path, device=device)
+#     file_path = os.path.join(dataset_dir, 'DE_s' + name_index[i])
 #     file = sio.loadmat(file_path)
 #     data = file['data']
 #
-#     generated_samples = generate_data(generator, 4800, input_dim)
+#     generated_samples = generate_data(generator, 4800, num_chan, img_rows, img_cols)
 #     generated_samples = generated_samples.reshape(-1, *data.shape[1:])  # 确保生成数据的形状正确
 #     data = np.concatenate((data, generated_samples), axis=0)
 #
@@ -210,3 +331,4 @@ class Discriminator(nn.Module):
 #         # 将数据和标签添加到总集合
 #     all_data.append(one_falx)
 #     all_labels.append(one_y)
+

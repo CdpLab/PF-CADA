@@ -13,10 +13,7 @@ from Generate.model import Generator, Discriminator
 
 from ODConv import ODConv2d
 
-input_dim = 4 * 8 * 9
-
-num_classes = 2
-batch_size = 128
+img_size = (8, 9)
 img_rows, img_cols, num_chan = 8, 9, 4
 flag = 'a'
 t = 6
@@ -47,204 +44,12 @@ torch.cuda.manual_seed_all(seed)
 np.random.seed(seed)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 加载和处理数据
-def load_data(file_path):
-    data = scipy.io.loadmat(file_path)['data']
-    data = data.reshape(data.shape[0], -1)
-    data_tensor = torch.tensor(data, dtype=torch.float)
-    return data_tensor
-
-def generate_data(generator, num_samples, num_chan=4, img_rows=8, img_cols=9):
-    generator.eval()  # 确保模型处于评估模式
-    # 为卷积生成器创建正确形状的噪声
-    noise = torch.randn(num_samples, num_chan, img_rows, img_cols, device=device)
-    with torch.no_grad():
-        generated_data = generator(noise)
-    # 不再需要调整形状，因为生成的数据应该已经是正确的形状
-    generated_data = generated_data.cpu().numpy()  # 只需将数据移至CPU并转换为NumPy数组
-    return generated_data
-
-
-def assign_labels(num_samples, high_arousal_prob=0.5, high_valence_prob=0.5):
-    arousal_labels = np.random.choice([0, 1], size=(num_samples,), p=[1-high_arousal_prob, high_arousal_prob])
-    valence_labels = np.random.choice([0, 1], size=(num_samples,), p=[1-high_valence_prob, high_valence_prob])
-    return arousal_labels, valence_labels
-
-def pretrain_gan(generator, discriminator, epochs, batch_size, pretrain_data_paths, device):
-    """
-    预训练GAN模型
-    """
-    for path_index, path in enumerate(pretrain_data_paths, start=1):
-        X_train = load_data(path)
-        dataset = TensorDataset(X_train)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-        # 为生成器和判别器分别定义优化器
-        optimizer_G = torch.optim.SGD(generator.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
-        optimizer_D = torch.optim.SGD(discriminator.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
-        scheduler_G = torch.optim.lr_scheduler.StepLR(optimizer_G, step_size=30, gamma=0.1)
-        scheduler_D = torch.optim.lr_scheduler.StepLR(optimizer_D, step_size=30, gamma=0.1)
-        criterion = nn.BCELoss()  # 二元交叉熵损失用于 GAN
-
-        for epoch in range(epochs):
-            for _, (real_data,) in enumerate(loader):
-                real_data = real_data.to(device)
-                batch_size = real_data.size(0)
-
-                # 真实数据标签为1, 假数据标签为0
-                real_labels = torch.ones(batch_size, 1, device=device)
-                fake_labels = torch.zeros(batch_size, 1, device=device)
-
-                # 训练判别器
-                discriminator.zero_grad()
-                outputs_real = discriminator(real_data)
-                d_loss_real = criterion(outputs_real, real_labels)
-                d_loss_real.backward()
-
-                # 训练判别器时生成噪声数据
-                noise = torch.randn(batch_size, num_chan, img_rows, img_cols, device=device)
-                fake_data = generator(noise)
-                outputs_fake = discriminator(fake_data.detach())
-                d_loss_fake = criterion(outputs_fake, fake_labels)
-                d_loss_fake.backward()
-                optimizer_D.step()
-
-                # 训练生成器
-                generator.zero_grad()
-                outputs = discriminator(fake_data)
-                g_loss = criterion(outputs, real_labels)
-                g_loss.backward()
-                optimizer_G.step()
-
-                # 更新学习率
-                scheduler_G.step()
-                scheduler_D.step()
-
-                if epoch % 100 == 0:
-                    print(
-                        f"Epoch [{epoch + 1}/{epochs}] D_loss: {d_loss_real.item() + d_loss_fake.item():.4f} G_loss: {g_loss.item():.4f}")
-
-        # 每训练完一个数据集后的提示信息
-        print(f"Completed pretraining with dataset {path_index}/{len(pretrain_data_paths)}: {path}")
-
-def finetune_gan(generator, discriminator, epochs, batch_size, finetune_data_path, device):
-    """
-    微调GAN模型，使用微调数据路径
-    """
-    generator.train()
-    discriminator.train()
-    # 微调GAN的逻辑，与预训练类似，但是针对每个实验者的微调数据路径进行
-    X_train = load_data(finetune_data_path)
-    dataset = TensorDataset(X_train)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-    # 为生成器和判别器分别定义优化器
-    optimizer_G = torch.optim.SGD(generator.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
-    optimizer_D = torch.optim.SGD(discriminator.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
-    scheduler_G = torch.optim.lr_scheduler.StepLR(optimizer_G, step_size=30, gamma=0.1)
-    scheduler_D = torch.optim.lr_scheduler.StepLR(optimizer_D, step_size=30, gamma=0.1)
-    criterion = nn.BCELoss()  # 二元交叉熵损失用于 GAN
-
-    for epoch in range(epochs):
-        for _, (real_data,) in enumerate(loader):
-            real_data = real_data.to(device)
-            batch_size = real_data.size(0)
-
-            # 真实数据标签为1, 假数据标签为0
-            real_labels = torch.ones(batch_size, 1, device=device)
-            fake_labels = torch.zeros(batch_size, 1, device=device)
-
-            # 训练判别器
-            discriminator.zero_grad()
-            outputs_real = discriminator(real_data)
-            d_loss_real = criterion(outputs_real, real_labels)
-            d_loss_real.backward()
-
-            # 训练判别器时生成噪声数据
-            noise = torch.randn(batch_size, num_chan, img_rows, img_cols, device=device)
-            fake_data = generator(noise)
-            outputs_fake = discriminator(fake_data.detach())
-            d_loss_fake = criterion(outputs_fake, fake_labels)
-            d_loss_fake.backward()
-            optimizer_D.step()
-
-            # 训练生成器
-            generator.zero_grad()
-            outputs = discriminator(fake_data)
-            g_loss = criterion(outputs, real_labels)
-            g_loss.backward()
-            optimizer_G.step()
-
-            # 更新学习率
-            scheduler_G.step()
-            scheduler_D.step()
-
-            if epoch % 10 == 0:
-                print(
-                    f"Epoch [{epoch + 1}/{epochs}] D_loss: {d_loss_real.item() + d_loss_fake.item():.4f} G_loss: {g_loss.item():.4f}")
-
-def split_data_for_pretraining_and_finetuning(data_dir, name_index, test_size=0.3):
-    pretrain_data_paths = []
-    finetune_data_paths = []
-
-    for name in name_index:
-        file_path = os.path.join(data_dir, f'DE_s{name}.mat')
-        data = scipy.io.loadmat(file_path)['data']
-
-        # 假设数据第一维是样本维
-        num_samples = data.shape[0]
-        indices = np.arange(num_samples)
-
-        # 分割样本索引
-        pretrain_indices, finetune_indices = train_test_split(indices, test_size=test_size, random_state=42)
-
-        # 保存分割后的数据
-        pretrain_data_path = os.path.join(data_dir, f'pretrain_DE_s{name}.mat')
-        finetune_data_path = os.path.join(data_dir, f'finetune_DE_s{name}.mat')
-
-        scipy.io.savemat(pretrain_data_path, {'data': data[pretrain_indices]})
-        scipy.io.savemat(finetune_data_path, {'data': data[finetune_indices]})
-
-        pretrain_data_paths.append(pretrain_data_path)
-        finetune_data_paths.append(finetune_data_path)
-        print(
-            f"Splitting data for subject {name}: Pretrain data saved to {pretrain_data_path}, Finetune data saved to {finetune_data_path}")
-
-    return pretrain_data_paths, finetune_data_paths
-
-# 分割数据用于预训练和微调
-pretrain_data_paths, finetune_data_paths = split_data_for_pretraining_and_finetuning(dataset_dir, name_index)
-
-# 实例化GAN模型并移至适当的设备
-generator = Generator(num_chan=4, img_rows=8, img_cols=9, input_dim=input_dim).to(device)
-discriminator = Discriminator(input_dim).to(device)
-
-# 使用预训练数据集路径预训练GAN
-pretrain_gan(generator, discriminator, epochs=1000, batch_size=256, pretrain_data_paths=pretrain_data_paths, device=device)
-
-# 微调每个实验者的GAN模型
-for i, finetune_data_path in enumerate(finetune_data_paths):
-    print(f"Finetuning GAN with data from {finetune_data_path}")
-
-    # 微调GAN
-    finetune_gan(generator, discriminator, epochs=100, batch_size=256, finetune_data_path=finetune_data_path, device=device)
-    file_path = os.path.join(dataset_dir, 'DE_s' + name_index[i])
+for i in range(len(name_index)):
+    file_path = os.path.join(dataset_dir, 'DE_s'+name_index[i])
     file = sio.loadmat(file_path)
     data = file['data']
-
-    generated_samples = generate_data(generator, 4800, num_chan, img_rows, img_cols)
-    generated_samples = generated_samples.reshape(-1, *data.shape[1:])  # 确保生成数据的形状正确
-    data = np.concatenate((data, generated_samples), axis=0)
-
     y_v = file['valence_labels'][0]  # 加载情感标签
     y_a = file['arousal_labels'][0]  # 加载唤醒度标签
-
-    # 为生成的样本分配标签
-    generated_arousal_labels, generated_valence_labels = assign_labels(len(generated_samples))
-
-    # 合并愉悦度和激活度标签
-    y_v_combined = np.concatenate((y_v, generated_valence_labels), axis=0)
-    y_a_combined = np.concatenate((y_a, generated_arousal_labels), axis=0)
 
     # 数据重构
     one_falx = data.transpose([0, 2, 3, 1])
@@ -254,10 +59,10 @@ for i, finetune_data_path in enumerate(finetune_data_paths):
     one_y_v = np.empty([0, 2])
     one_y_a = np.empty([0, 2])
 
-    for j in range(int(len(y_a_combined) // t)):
-        # 调整标签形状，这里直接使用y_v_combined和y_a_combined
-        label_v = np.array([1, 0]) if y_v_combined[j * t] == 1 else np.array([0, 1])
-        label_a = np.array([1, 0]) if y_a_combined[j * t] == 1 else np.array([0, 1])
+    for j in range(int(len(y_a) // t)):
+        # 调整标签形状
+        label_v = np.array([1, 0]) if y_v[j * t] == 1 else np.array([0, 1])
+        label_a = np.array([1, 0]) if y_a[j * t] == 1 else np.array([0, 1])
 
         # 堆叠标签
         one_y_v = np.vstack((one_y_v, label_v))
@@ -268,7 +73,7 @@ for i, finetune_data_path in enumerate(finetune_data_paths):
     else:
         one_y = one_y_a
 
-        # 将数据和标签添加到总集合
+    # 将数据和标签添加到总集合
     all_data.append(one_falx)
     all_labels.append(one_y)
 
@@ -376,14 +181,126 @@ all_data = np.transpose(all_data, (0, 1, 4, 2, 3))
 print("Using device:", device)
 
 
-for fold, (train_index, test_index) in enumerate(kfold.split(all_data, all_labels.argmax(1))):
+def pretrain_model(model, train_loader, criterion, optimizer, device, epochs):
+    model.train()
+    for epoch in range(epochs):
+        total_loss = 0
+        for batch_idx, batch in enumerate(train_loader):
+            inputs = [batch[i].to(device) for i in range(6)]
+            targets = batch[6].to(device)
+            optimizer.zero_grad()
+            outputs = model(*inputs)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        # 打印每轮训练的提示信息
+        print(f'Pretrain Epoch: {epoch + 1}, Total Loss: {total_loss:.4f}')
+
+
+
+def finetune_model(model, train_loader, val_loader, criterion, optimizer, device, epochs):
+    for epoch in range(epochs):
+        model.train()  # 确保在每个epoch开始时设置为训练模式
+        total_loss = 0
+        for batch_idx, batch in enumerate(train_loader):
+            inputs = [batch[i].to(device) for i in range(6)]
+            targets = batch[6].to(device)
+            optimizer.zero_grad()
+            outputs = model(*inputs)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+
+        val_loss, val_accuracy = validate(model, val_loader, criterion, device)  # validate函数可能会设置model.eval()
+        model.train()  # 重新设置为训练模式，以防validate函数将其设置为评估模式
+        print(f'Finetune Epoch: {epoch + 1}, Total Loss: {total_loss:.4f}, Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}')
+
+
+def train(model, train_loader, criterion, optimizer, device):
+    model.train()
+    total_loss = 0
+    for batch_idx, batch in enumerate(train_loader):
+        inputs = [batch[i].to(device) for i in range(6)]  # 将输入数据移至 GPU
+        targets = batch[6].to(device)  # 将目标移至 GPU
+        optimizer.zero_grad()
+        outputs = model(*inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+        # 打印每个批次的信息
+        if batch_idx % 10 == 0:  # 每10个批次打印一次
+            print(f'Epoch {epoch}, Batch {batch_idx}, Current Batch Loss: {loss.item()}')
+
+    return total_loss / len(train_loader)
+
+
+def validate(model, val_loader, criterion, device):
+    model.eval()
+    total_loss = 0
+    correct = 0
+    with torch.no_grad():
+        for batch in val_loader:
+            inputs = [batch[i].to(device) for i in range(6)]  # 将输入数据移至 GPU
+            targets = batch[6].to(device)  # 将目标移至 GPU
+            outputs = model(*inputs)
+            loss = criterion(outputs, targets)
+            total_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            correct += (predicted == targets).sum().item()
+    return total_loss / len(val_loader), correct / len(val_loader.dataset)
+
+
+def test(model, test_loader, device):
+    model.eval()
+    correct = 0
+    with torch.no_grad():
+        for batch in test_loader:
+            inputs = [batch[i].to(device) for i in range(6)]  # 将输入数据移至 GPU
+            targets = batch[6].to(device)  # 将目标移至 GPU
+            outputs = model(*inputs)
+            _, predicted = torch.max(outputs.data, 1)
+            correct += (predicted == targets).sum().item()
+    return correct / len(test_loader.dataset)
+
+
+pretrain_data, finetune_data, pretrain_labels, finetune_labels = train_test_split(
+    all_data, all_labels, test_size=0.5, random_state=seed
+)
+
+pretrain_data_tensor = [torch.tensor(pretrain_data[:, i, :, :, :], dtype=torch.float32) for i in range(6)]
+pretrain_labels_tensor = torch.max(torch.tensor(pretrain_labels, dtype=torch.float32), 1)[1]
+pretrain_dataset = TensorDataset(*pretrain_data_tensor, pretrain_labels_tensor)
+pretrain_loader = DataLoader(pretrain_dataset, batch_size=128, shuffle=True)
+
+
+# 初始化模型和优化器
+model = MyModel(img_size, num_chan).to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
+
+# 调用预训练函数
+pretrain_model(model, pretrain_loader, criterion, optimizer, device, epochs=50)
+
+# 保存预训练的模型参数
+torch.save(model.state_dict(), 'pretrained_model.pth')
+
+
+for fold, (train_index, test_index) in enumerate(kfold.split(finetune_data, finetune_labels.argmax(1))):
     print(f"Training on fold {fold+1}/5...")
 
     img_size = (8, 9)
     num_chan = 4
 
-    # 初始化模型和优化器
+    # 首先初始化模型
     model = MyModel(img_size, num_chan).to(device)
+
+    # 然后加载预训练的模型参数
+    model.load_state_dict(torch.load('pretrained_model.pth'))
+
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4)
 
@@ -416,68 +333,20 @@ for fold, (train_index, test_index) in enumerate(kfold.split(all_data, all_label
     val_loader = DataLoader(val_dataset, batch_size=128)
     test_loader = DataLoader(test_dataset, batch_size=128)
 
+    # 调用微调函数
+    finetune_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=50)
 
-    def train(model, train_loader, criterion, optimizer, device):
-        model.train()
-        total_loss = 0
-        for batch_idx, batch in enumerate(train_loader):
-            inputs = [batch[i].to(device) for i in range(6)]  # 将输入数据移至 GPU
-            targets = batch[6].to(device)  # 将目标移至 GPU
-            optimizer.zero_grad()
-            outputs = model(*inputs)
-            loss = criterion(outputs, targets)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-
-            # 打印每个批次的信息
-            if batch_idx % 10 == 0:  # 每10个批次打印一次
-                print(f'Epoch {epoch}, Batch {batch_idx}, Current Batch Loss: {loss.item()}')
-
-        return total_loss / len(train_loader)
-
-
-    def validate(model, val_loader, criterion):
-        model.eval()
-        total_loss = 0
-        correct = 0
-        with torch.no_grad():
-            for batch in val_loader:
-                inputs = [batch[i].to(device) for i in range(6)]  # 将输入数据移至 GPU
-                targets = batch[6].to(device)  # 将目标移至 GPU
-                outputs = model(*inputs)
-                loss = criterion(outputs, targets)
-                total_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                correct += (predicted == targets).sum().item()
-        return total_loss / len(val_loader), correct / len(val_loader.dataset)
-
-
-    def test(model, test_loader):
-        model.eval()
-        correct = 0
-        with torch.no_grad():
-            for batch in test_loader:
-                inputs = [batch[i].to(device) for i in range(6)]  # 将输入数据移至 GPU
-                targets = batch[6].to(device)  # 将目标移至 GPU
-                outputs = model(*inputs)
-                _, predicted = torch.max(outputs.data, 1)
-                correct += (predicted == targets).sum().item()
-        return correct / len(test_loader.dataset)
-
-        # 在此处进行模型的训练和验证
-
-
-    for epoch in range(60):
+    # 在此处进行模型的训练和验证
+    for epoch in range(10):
         train_loss = train(model, train_loader, criterion, optimizer, device)
-        val_loss, val_accuracy = validate(model, val_loader, criterion)
+        val_loss, val_accuracy = validate(model, val_loader, criterion, device)
         print(
                 f"Epoch {epoch}, Train Loss: {train_loss}, Validation Loss: {val_loss}, Validation Accuracy: {val_accuracy}")
 
-    test_accuracy = test(model, test_loader)
+    test_accuracy = test(model, test_loader, device)
     fold_acc.append(test_accuracy)
     print(f"Fold {fold + 1} Test Accuracy: {test_accuracy}")
-    acc = test(model, test_loader)
+    acc = test(model, test_loader, device)
     acc_list.append(acc)
 
 
@@ -487,4 +356,4 @@ print('Average Test Accuracy across folds:', mean_acc)
 
 # 最后，在所有折训练完成后
 print('Acc_all:', acc_list)
-print('Acc_avg:', np.mean(acc_list))  # 如果acc_list不为空，这将正常工作
+print('Acc_avg:', np.mean(acc_list))
