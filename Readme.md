@@ -1,12 +1,12 @@
 #  <p align="center">PF‑CADA: Multi‑stage Pyramid Feature Fusion and Capsule‑enhanced Adversarial Domain Adaptation for EEG Emotion Recognition</p>
 
-<p align="center">Jia Liu, Yangrui Zhang, Chengcheng Hua, Lina Wei, and Dapeng Chen</p>
+<p align="center">Jia Liu, Yangrui Zhang, Chengcheng Hua, Lina Wei, and Dapeng Chen*</p>
 <p align="center">Nanjing University of Information Science & Technology</p>
 
 ## <p align="center">ABSTRACT</p>
 Emotion recognition based on electroencephalogram (EEG) signals is challenged by certain inherent limitations, including inter- and intra-subject variability and incomplete feature fusion. To overcome these limitations, this paper proposes a Multi-stage Pyramid Feature Fusion and Capsule-enhanced Adversarial Domain Adaptation (PF-CADA) for cross-subject EEG emotion recognition. PF-CADA integrates multi-stage pyramid feature extraction, dynamic feature routing, and adversarial domain adaptation into a unified framework. The multi-stage pyramid feature extractor hierarchically captures spatial, temporal, and frequency characteristics of EEG signals, ensuring the effective fusion of both global and local features. By leveraging the dynamic routing mechanism, the capsule network efficiently models the relationships among emotional features, while the adversarial domain adaptation module aligns feature distributions between the source and target domains to bridge the domain discrepancies. The Mamba-based classifier further enhances emotion classification accuracy by dynamically optimizing feature representations through selective state-space modeling. PF-CADA was extensively evaluated on the SEED and DEAP datasets. In cross-subject experiments, the model achieved an accuracy of 91.93\% on the SEED dataset and accuracies of 73.38\% and 71.92\% for arousal and valence, respectively, on the DEAP dataset, outperforming existing methods. Furthermore, in a user experiment simulating real-world scenarios, the model achieved a maximum emotion recognition accuracy of 72.80\%, demonstrating the potential of PF-CADA for practical applications in real-world settings.
 
-
+---
 
 **PF‑CADA** is a deep model for **cross‑subject EEG emotion recognition** that integrates:
 
