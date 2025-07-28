@@ -1,7 +1,3 @@
-Below is an **English README.md** you can place at the root of your repository. It reflects your paper and the current code layout (`pf_cada_model.py` + four experiment scripts).
-
----
-
 # PF‑CADA: Multi‑stage Pyramid Feature Fusion & Capsule‑enhanced Adversarial Domain Adaptation for EEG Emotion Recognition
 
 **PF‑CADA** is a deep model for **cross‑subject EEG emotion recognition** that integrates:
